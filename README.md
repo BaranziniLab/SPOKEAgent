@@ -13,7 +13,7 @@ An MCP (Model Context Protocol) server for querying the SPOKE biomedical knowled
 ### From GitHub (using uvx)
 
 ```bash
-uvx --from git+https://github.com/BaranziniLab/SPOKEAgent spokeagent
+uvx --from git+https://github.com/Broccolito/SPOKEAgent spokeagent
 ```
 
 ### Local Installation
@@ -34,7 +34,7 @@ Add to your MCP client configuration (e.g., Claude Desktop):
   "mcpServers": {
     "spokeagent": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/BaranziniLab/SPOKEAgent", "spokeagent"]
+      "args": ["--from", "git+https://github.com/Broccolito/SPOKEAgent", "spokeagent"]
     }
   }
 }
