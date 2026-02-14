@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spokeagent"
+version = "0.1.0"
+description = "An MCP server for querying the SPOKE biomedical knowledge graph for rapid biomedical knowledge inference"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Wanjun Gu", email = "wanjun.gu@ucsf.edu"},
+    {name = "Gianmarco Bellucci", email = "gianmarco.bellucci@ucsf.edu"}
+]
+maintainers = [
+    {name = "Wanjun Gu", email = "wanjun.gu@ucsf.edu"},
+    {name = "Gianmarco Bellucci", email = "gianmarco.bellucci@ucsf.edu"}
+]
+keywords = [
+    "mcp",
+    "biomedical",
+    "knowledge-graph",
+    "spoke",
+    "neo4j",
+    "healthcare",
+    "bioinformatics"
+]
+dependencies = [
+    "fastmcp>=2.11.2",
+    "neo4j>=5.28.2",
+    "pydantic>=2.11.7",
+]
+requires-python = ">=3.11"
+
+[project.scripts]
+spokeagent = "spokeagent.cli:main"
