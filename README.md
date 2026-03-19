@@ -6,58 +6,30 @@ An MCP (Model Context Protocol) server for querying the SPOKE biomedical knowled
 
 - **Query SPOKE Knowledge Graph**: Execute Cypher queries on the SPOKE biomedical knowledge graph
 - **Get SPOKE Schema**: Retrieve the complete schema of the SPOKE knowledge graph including nodes, relationships, and properties
-- **Pre-configured Access**: All SPOKE connection parameters are pre-configured - no setup required!
 
-## Installation
+## Access
 
-### From GitHub (using uvx)
+SPOKEAgent is currently available to **UCSF affiliates only**.
 
-```bash
-uvx --from git+https://github.com/Broccolito/SPOKEAgent spokeagent
-```
+To run the server, you will need a passcode (`SPOKEAGENT_PASSCODE`). Log in with your UCSF credentials at the link below to retrieve it:
 
-### Local Installation
+**[SPOKEAgent Credentials (UCSF affiliates)](https://wiki.library.ucsf.edu/pages/viewpage.action?pageId=755904655&spaceKey=~Wanjun.Gu%40ucsf.edu&title=SPOKEAgent%2BCredentials)**
 
-```bash
-cd SPOKEAgent
-pip install -e .
-```
+That page will show you how to set the environment variable and run the server.
 
 ## Usage
 
-### As an MCP Server
+SPOKEAgent is designed to be used with **[BioRouter](https://biorouterapp.com)**. To add it:
 
-Add to your MCP client configuration (e.g., Claude Desktop):
-
-```json
-{
-  "mcpServers": {
-    "spokeagent": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/Broccolito/SPOKEAgent", "spokeagent"]
-    }
-  }
-}
-```
-
-### Direct Command Line
+1. In BioRouter, go to **Add custom extension**
+2. Fill in the extension name and description
+3. For the one-liner command, use the following (replacing `<your-passcode>` with the value from the credentials page above):
 
 ```bash
-spokeagent
+SPOKEAGENT_PASSCODE=<your-passcode> uvx --from git+https://github.com/Broccolito/SPOKEAgent spokeagent
 ```
 
-## Configuration
-
-All SPOKE connection parameters are pre-configured:
-- **URI**: bolt://spokedev.cgl.ucsf.edu:7687
-- **Username**: neo4j
-- **Password**: SPOKEdev
-- **Database**: spoke
-
-No additional configuration is required!
-
-Optional environment variable:
-- `SPOKE_LOG_LEVEL`: Set logging level (DEBUG, INFO, WARNING, ERROR) - defaults to INFO
+1. Click **Add extension** — you're ready to go
 
 ## Available Tools
 

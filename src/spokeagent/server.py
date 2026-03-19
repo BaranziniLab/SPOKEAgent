@@ -4,6 +4,7 @@ SPOKEAgent - SPOKE Knowledge Graph MCP Server
 An MCP server for querying the SPOKE biomedical knowledge graph
 for rapid biomedical knowledge inference.
 """
+import base64
 import json
 import logging
 import os
@@ -21,11 +22,16 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger("SPOKEAgent")
 
-# Hardcoded SPOKE configuration
-SPOKE_URI = "bolt://spokedev.cgl.ucsf.edu:7687"
-SPOKE_USERNAME = "neo4j"
-SPOKE_PASSWORD = "SPOKEdev"
-SPOKE_DATABASE = "spoke"
+# SPOKE configuration
+_pc = os.environ.get("SPOKEAGENT_PASSCODE")
+if not _pc:
+    raise RuntimeError("SPOKEAGENT_PASSCODE environment variable is required")
+_pk: bytes = _pc.encode()
+_r  = lambda s: bytes(b ^ _pk[i % len(_pk)] for i, b in enumerate(base64.b64decode(s))).decode()
+SPOKE_URI      = _r("ER8DH18bWhADCRgVCw4TGhYEH0gGExwNS1ERFklRRUhY")
+SPOKE_USERNAME = _r("HRUAXw8=")
+SPOKE_PASSWORD = _r("ICAgICBQEBU=")
+SPOKE_DATABASE = _r("AAAAAAA=")
 
 
 class SPOKEConfig(BaseModel):
