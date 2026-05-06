@@ -2,6 +2,17 @@
 
 An MCP (Model Context Protocol) server for querying the SPOKE biomedical knowledge graph for rapid biomedical knowledge inference.
 
+## BioRouter Extension
+
+**[Download spokeagent.brxt](https://github.com/BaranziniLab/SPOKEAgent/releases/latest/download/spokeagent.brxt)**
+
+Drag the `.brxt` file into BioRouter's **Extensions → Add extension** dialog. BioRouter will install the virtual environment automatically and prompt for the required passcode.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SPOKEAGENT_PASSCODE` | ✅ | — | Access passcode provided by UCSF |
+| `SPOKE_LOG_LEVEL` | optional | `INFO` | Logging level |
+
 ## Features
 
 - **Query SPOKE Knowledge Graph**: Execute Cypher queries on the SPOKE biomedical knowledge graph

@@ -1,0 +1,26 @@
+{
+  "name": "spokeagent",
+  "display_name": "SPOKEAgent",
+  "description": "Read-only Cypher queries against the SPOKE biomedical knowledge graph (Neo4j). Access requires a passcode from UCSF.",
+  "version": "0.1.0",
+  "entry_point": "spokeagent",
+  "repository": "https://github.com/BaranziniLab/SPOKEAgent",
+  "tools_count": 2,
+  "env_vars": [
+    {
+      "key": "SPOKEAGENT_PASSCODE",
+      "required": true,
+      "auto_propagate": false,
+      "description": "Access passcode provided by UCSF",
+      "secret": true
+    },
+    {
+      "key": "SPOKE_LOG_LEVEL",
+      "required": false,
+      "auto_propagate": true,
+      "default": "INFO",
+      "description": "Logging level",
+      "secret": false
+    }
+  ]
+}
