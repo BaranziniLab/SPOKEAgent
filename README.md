@@ -20,13 +20,23 @@ SPOKEAgent is designed to be used with **[BioRouter](https://biorouterapp.com)**
 
 2. Fill in the extension name and description
 
-3. For the one-liner command, use the following (replacing `<your-passcode>` with the value from the credentials page above):
+3. For the command, use the following:
 
 ```bash
-SPOKEAGENT_PASSCODE=<your-passcode> uvx --from git+https://github.com/IlanLadabaum/SPOKEAgent spokeagent
+uvx --from git+https://github.com/BaranziniLab/SPOKEAgent spokeagent
 ```
 
-1. Click **Add extension** — you're ready to go
+4. Add an environment variable: 
+
+   	a. Variable name = "SPOKEAGENT_PASSCODE"
+
+   	b. Value =`<your-passcode>` 
+
+   		(replacing `<your-passcode>` with the value from the credentials page above.)
+
+   	c. Click "+ Add" to add the variable.
+
+5. Click **Add extension** — you're ready to go
 
 ## Available Tools
 
