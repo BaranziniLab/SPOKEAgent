@@ -1,17 +1,6 @@
-# SPOKEdevAgent
+# SPOKEAgent
 
-An MCP (Model Context Protocol) server for querying the SPOKE biomedical knowledge graph for rapid biomedical knowledge inference.
-
-## BioRouter Extension
-
-**[Download spokeagent.brxt](https://github.com/BaranziniLab/SPOKEdevAgent/releases/latest/download/spokeagent.brxt)**
-
-Drag the `.brxt` file into BioRouter's **Extensions → Add extension** dialog. BioRouter will install the virtual environment automatically and prompt for the required passcode.
-
-| Variable              | Required | Default | Description                      |
-| --------------------- | -------- | ------- | -------------------------------- |
-| `SPOKEAGENT_PASSCODE` | ✅        | —       | Access passcode provided by UCSF |
-| `SPOKE_LOG_LEVEL`     | optional | `INFO`  | Logging level                    |
+An MCP (Model Context Protocol) server for querying the SPOKE biomedical knowledge graph for rapid biomedical knowledge inference. Points to the official release of SPOKE.
 
 ## Features
 
@@ -21,17 +10,11 @@ Drag the `.brxt` file into BioRouter's **Extensions → Add extension** dialog. 
 
 ## Access
 
-SPOKEdevAgent is currently available to **UCSF affiliates only**.
+SPOKEAgent is currently in internal testing. Updates to follow soon.
 
-To run the server, you will need a passcode (`SPOKEAGENT_PASSCODE`). Log in with your UCSF credentials at the link below to retrieve it:
+## Usage / Installation
 
-**[SPOKEdevAgent Credentials (UCSF affiliates)](https://wiki.library.ucsf.edu/pages/viewpage.action?pageId=755904655&spaceKey=~Wanjun.Gu%40ucsf.edu&title=SPOKEAgent%2BCredentials)**
-
-That page will show you how to set the environment variable and run the server.
-
-## Usage
-
-SPOKEdevAgent is designed to be used with **[BioRouter](https://biorouterapp.com)**. To add it:
+SPOKEAgent is designed to be used with **[BioRouter](https://biorouterapp.com)**. To add it:
 
 1. In BioRouter, go to **Add custom extension**
 
@@ -40,20 +23,18 @@ SPOKEdevAgent is designed to be used with **[BioRouter](https://biorouterapp.com
 3. For the command, use the following:
 
 ```bash
-uvx --from git+https://github.com/BaranziniLab/SPOKEdevAgent spokedevagent
+uvx --from git+https://github.com/BaranziniLab/SPOKEAgent spokeagent
 ```
 
-4. Add an environment variable:
+4. Add an environment variable: 
 
-   a. Variable name = "SPOKEAGENT_PASSCODE"
+   	a. Variable name = "SPOKEAGENT_PASSCODE"
 
-   b. Value =`<your-passcode>`
+   	b. Value =`<your-passcode>` 
 
-```
- (replacing `<your-passcode>` with the value from the credentials page above.)
-```
+   		(replacing `<your-passcode>` with the value from the credentials page above.)
 
-   c. Click "+ Add" to add the variable.
+   	c. Click "+ Add" to add the variable.
 
 5. Click **Add extension** — you're ready to go
 
