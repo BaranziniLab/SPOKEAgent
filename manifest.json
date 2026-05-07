@@ -4,7 +4,7 @@
   "description": "Read-only Cypher queries against the SPOKE biomedical knowledge graph (Neo4j). Access requires a passcode from UCSF.",
   "version": "0.1.0",
   "entry_point": "spokeagent",
-  "repository": "https://github.com/BaranziniLab/SPOKEAgent",
+  "repository": "https://github.com/IlanLadabaum/SPOKEAgent",
   "tools_count": 2,
   "env_vars": [
     {

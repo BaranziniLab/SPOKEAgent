@@ -36,3 +36,7 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Secrets
+password.txt
+CLAUDE.md

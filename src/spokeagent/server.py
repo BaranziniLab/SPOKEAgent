@@ -28,9 +28,9 @@ if not _pc:
     raise RuntimeError("SPOKEAGENT_PASSCODE environment variable is required")
 _pk: bytes = _pc.encode()
 _r  = lambda s: bytes(b ^ _pk[i % len(_pk)] for i, b in enumerate(base64.b64decode(s))).decode()
-SPOKE_URI      = _r("ER8DH18bWhADCRgVCw4TGhYEH0gGExwNS1ERFklRRUhY")
+SPOKE_URI      = _r("ER8DH18bTh8cHBsKRQZTDUIZEAMJRQBQFFZbRUhY")
 SPOKE_USERNAME = _r("HRUAXw8=")
-SPOKE_PASSWORD = _r("ICAgICBQEBU=")
+SPOKE_PASSWORD = _r("ICAgICBQBBo=")
 SPOKE_DATABASE = _r("AAAAAAA=")
 
 

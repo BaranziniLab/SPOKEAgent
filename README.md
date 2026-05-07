@@ -4,7 +4,7 @@ An MCP (Model Context Protocol) server for querying the SPOKE biomedical knowled
 
 ## BioRouter Extension
 
-**[Download spokeagent.brxt](https://github.com/BaranziniLab/SPOKEAgent/releases/latest/download/spokeagent.brxt)**
+**[Download spokeagent.brxt](https://github.com/IlanLadabaum/SPOKEAgent/releases/latest/download/spokeagent.brxt)**
 
 Drag the `.brxt` file into BioRouter's **Extensions → Add extension** dialog. BioRouter will install the virtual environment automatically and prompt for the required passcode.
 
@@ -37,7 +37,7 @@ SPOKEAgent is designed to be used with **[BioRouter](https://biorouterapp.com)**
 3. For the one-liner command, use the following (replacing `<your-passcode>` with the value from the credentials page above):
 
 ```bash
-SPOKEAGENT_PASSCODE=<your-passcode> uvx --from git+https://github.com/Broccolito/SPOKEAgent spokeagent
+SPOKEAGENT_PASSCODE=<your-passcode> uvx --from git+https://github.com/IlanLadabaum/SPOKEAgent spokeagent
 ```
 
 1. Click **Add extension** — you're ready to go
