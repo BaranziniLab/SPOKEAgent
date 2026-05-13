@@ -2,19 +2,25 @@
 
 An MCP (Model Context Protocol) server for querying the SPOKE biomedical knowledge graph for rapid biomedical knowledge inference. Points to the official release of SPOKE.
 
+## BioRouter Extension
+
+**[Download spokeagent.brxt](https://github.com/BaranziniLab/SPOKEAgent/releases/latest/download/spokeagent-0.2.0.brxt)**
+
+Drag the `.brxt` file into BioRouter's **Extensions → Add extension** dialog. BioRouter will install the virtual environment automatically and prompt for required credentials.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SPOKEAGENT_PASSCODE` | ✅ | — | Passcode from the SPOKEAgent credentials page |
+
 ## Features
 
 - **Query SPOKE Knowledge Graph**: Execute Cypher queries on the SPOKE biomedical knowledge graph
 
 - **Get SPOKE Schema**: Retrieve the complete schema of the SPOKE knowledge graph including nodes, relationships, and properties
 
-## Access
+## Alternative install (custom extension via `uvx`)
 
-SPOKEAgent is currently in internal testing. Updates to follow soon.
-
-## Usage / Installation
-
-SPOKEAgent is designed to be used with **[BioRouter](https://biorouterapp.com)**. To add it:
+If you prefer not to use the `.brxt` bundle, you can register SPOKEAgent as a custom extension command:
 
 1. In BioRouter, go to **Add custom extension**
 
@@ -26,15 +32,13 @@ SPOKEAgent is designed to be used with **[BioRouter](https://biorouterapp.com)**
 uvx --from git+https://github.com/BaranziniLab/SPOKEAgent spokeagent
 ```
 
-4. Add an environment variable: 
+4. Add an environment variable:
 
-   	a. Variable name = "SPOKEAGENT_PASSCODE"
+   a. Variable name = `SPOKEAGENT_PASSCODE`
 
-   	b. Value =`<your-passcode>` 
+   b. Value = `<your-passcode>` (from the credentials page)
 
-   		(replacing `<your-passcode>` with the value from the credentials page above.)
-
-   	c. Click "+ Add" to add the variable.
+   c. Click **+ Add** to add the variable.
 
 5. Click **Add extension** — you're ready to go
 
