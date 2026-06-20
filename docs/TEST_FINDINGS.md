@@ -152,3 +152,21 @@ calls — best batch so far.** All rc=0.
   resolved "Innate Immune System" node is the deprecated copy; reactions hang off the
   current copy/sub-pathways). Niche data-modeling issue; the agent still answered
   correctly. Not worth a code change.
+
+---
+
+## Batch 6 (Q51–Q60: identifier-resolution edge cases) — v0.3.3
+Per-Q (s/calls): Q51 53.5/9, Q52 19.4/5, Q53 58.3/15, Q54 53.6/11, Q55 48.1/8,
+Q56 128.9/20, Q57 35.7/8, Q58 20.0/3, Q59 57.7/11, Q60 54.5/7. Mean 53.0 s / 9.7 calls.
+All rc=0, all answered correctly.
+
+### Validation — resolve_entity does its job (the batch it was built for)
+- Case-insensitive ("Multiple Sclerosis"→MS), DOID:9352, **Ensembl** ENSG00000130203
+  →APOE, **DrugBank** DB00619→Imatinib, **brand** Tylenol→Acetaminophen, **UMLS CUI**
+  C0027497→Nausea, **UBERON** liver, ambiguous "cold"→common cold — all resolved
+  and answered correctly.
+- Residual thrash is **data gaps, not tool bugs**: Q56 OMIM 143100 → the agent
+  reached Huntington's disease, but SPOKE's `omim_list` for that node doesn't contain
+  143100, so the omim resolution path legitimately returns nothing and the model
+  recovers via the name. Q53 (15 calls) was thoroughness — enumerating every
+  gene→disease edge type for APOE. No code change warranted.
