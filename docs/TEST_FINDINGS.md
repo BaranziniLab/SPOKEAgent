@@ -111,3 +111,25 @@ treats-vs-trials distinction, food interactions all used the right edges).
   (Warfarin deg 1100 > warfarin deg 7; Aspirin deg 695 first). SKILL.md: prefer the
   higher-degree variant when a traversal is empty. (Q24's prevalence thrash was a
   complex US-state aggregation — model strategy, not a tool gap.)
+
+---
+
+## Batch 4 (Q31–Q40: anatomy / expression / cell types) — v0.3.2
+Per-Q (s/calls): Q31 168.1/30, Q32 50.1/7, Q33 22.1/3, Q34 71.0/13, Q35 56.3/8,
+Q36 25.9/5, Q37 86.0/20, Q38 96.7/24, Q39 50.9/12, Q40 66.5/12. Mean 69.4 s / 13.4
+calls. All rc=0. Higher than prior batches: EXPRESSES_AeG expression data in SPOKE
+is sparse (concentrated on certain tissues e.g. testis/islet, not most brain
+subregions), so several questions involved legitimate exploration of absent data.
+
+### New problem
+- **P13 — string "None" passed as a label**: MiMo sometimes calls
+  resolve_entity(query, label="None") (the literal string). The code built index
+  "NoneNamesAndIds" → 0 results → wasted calls (seen in Q31). describe_node helped
+  but was used late.
+
+### Fix applied (v0.3.3)
+- **F9** resolve_entity / describe_node now normalise label "None"/"null"/"any"/""
+  to "no label" (verified: label="None" now resolves hippocampus correctly).
+- Reiterated in SKILL.md (already present): on the FIRST 0-row result, call
+  describe_node before trying query variants — the residual Q31/Q37/Q38 thrash is
+  mostly the model exploring genuinely sparse expression data + late describe_node use.

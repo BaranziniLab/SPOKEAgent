@@ -256,6 +256,10 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
     def _resolve_candidates(q: str, label: Optional[str], limit: int) -> list[dict]:
         """Shared resolver used by resolve_entity and describe_node. Returns a
         ranked list of {label, name, identifier, matched_on, score}."""
+        # Models sometimes pass the literal strings "None"/"null"/"any" for "no
+        # label"; treat those as unset rather than a (nonexistent) label.
+        if label is not None and str(label).strip().lower() in ("", "none", "null", "any", "all"):
+            label = None
         results: list[dict] = []
         seen: set = set()
 
