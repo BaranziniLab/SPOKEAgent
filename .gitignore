@@ -40,3 +40,7 @@ Thumbs.db
 # Secrets
 password.txt
 CLAUDE.md
+
+# never commit local secrets
+*secrets*.json
+sandbox/
