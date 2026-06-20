@@ -170,3 +170,21 @@ All rc=0, all answered correctly.
   143100, so the omim resolution path legitimately returns nothing and the model
   recovers via the name. Q53 (15 calls) was thoroughness — enumerating every
   gene→disease edge type for APOE. No code change warranted.
+
+---
+
+## Batch 7 (Q61–Q70: multi-hop ranked traversals) — v0.3.3
+Per-Q (s/calls): Q61 41.8/6, Q62 36.9/6, Q63 135.2/23, Q64 25.2/4, Q65 60.4/14*,
+Q66 30.5/4, Q67 33.3/5, Q68 39.4/6, Q69 39.9/5, Q70 111.5/19. Mean ~7.8 calls.
+Multi-hop ranking works well: drug-repurposing 3-hop (Q61), shared genes between
+diseases (Q62), shared side-effects (Q64), polypharmacology shared targets (Q69,
+"olanzapine & clozapine share 36 targets"), functional pathway neighbours (Q67).
+
+### Issue (harness, not extension)
+- Q65 first run hit a transient MiMo/biorouter blip: exit rc=-15, 0 tool calls,
+  empty stderr, 3.8 s, no answer. Not an extension fault (SPOKE never invoked).
+  *Broadened the harness retry* to also re-run clean early failures (non-zero exit +
+  0 calls + no answer + not our timeout). Re-run: 60.4 s / 14 calls, correct LRRK2→
+  Parkinson's answer. (Q63/Q70 high call counts are genuinely complex gene-set→disease
+  ranking the model does iteratively but correctly; the one-query co-occurrence form
+  is in the skill.)
