@@ -188,3 +188,23 @@ diseases (Q62), shared side-effects (Q64), polypharmacology shared targets (Q69,
   Parkinson's answer. (Q63/Q70 high call counts are genuinely complex gene-set→disease
   ranking the model does iteratively but correctly; the one-query co-occurrence form
   is in the skill.)
+
+---
+
+## Batch 8 (Q71–Q80: open-ended graph reasoning / shortest paths) — hardest batch
+Initial per-Q (s/calls): Q71 71/6, Q72 157/29, Q73 48/6, Q74 154/33, Q75 114/23,
+Q76 37/9, Q77 58/7, Q78 130/26, Q79 90/13, Q80 33/5. The "how connected / shortest
+path / subgraph bridge" questions thrashed: the model hand-wrote shortestPath /
+multi-hop patterns, tried apoc.algo (not installed), and over-explored after already
+finding an answer (Q72 found the direct TREATS edge at call 5, then probed 24 more).
+
+### Fix applied (v0.4.0) — NEW tool `find_path`
+- **F10** `find_path(source, target, source_label?, target_label?, max_hops?, max_paths?)`:
+  resolves both endpoints, runs a bounded anchored `allShortestPaths` (≤5 hops,
+  deduped), returns each path as node + relationship-type sequences. One call answers
+  "how are X and Y connected". SKILL.md updated to route path questions to it.
+- Validation: **Q72 157.5 s/29 calls → 23.7 s/6 calls** (find_path used, correct
+  direct Aspirin-[:TREATS_CtD]->colorectal cancer). Q75 still ~19 calls — the prompt
+  explicitly asks to "explore *multiple* relationship types", so the model enumerates
+  by design even though find_path gives the shortest. (Q74/Q79 symptom/condition-set
+  → disease ranking are inherently broad subgraph questions; answered correctly.)

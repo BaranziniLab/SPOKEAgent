@@ -513,6 +513,92 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
             raise ToolError(f"describe_node failed: {e}")
 
     @mcp.tool(
+        name="find_path",
+        annotations=ToolAnnotations(
+            title="Find shortest path(s) between two SPOKE nodes",
+            readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True,
+        ),
+    )
+    def find_path(
+        source: str = Field(..., description="Source entity name or identifier (e.g. 'APOE', "
+                            "'aspirin', 'DOID:9256')."),
+        target: str = Field(..., description="Target entity name or identifier."),
+        source_label: Optional[str] = Field(default=None, description="Optional label for the source "
+                            "(e.g. 'Gene', 'Compound', 'Disease')."),
+        target_label: Optional[str] = Field(default=None, description="Optional label for the target."),
+        max_hops: int = Field(default=4, description="Maximum path length to search (1-5; clamped)."),
+        max_paths: int = Field(default=5, description="Maximum number of shortest paths to return."),
+    ) -> ToolResult:
+        """
+        Find the shortest connecting path(s) between two entities in SPOKE - the right
+        tool for "how are X and Y connected / what links X to Y / shortest path" and
+        subgraph-bridge questions. Both endpoints are resolved first (case / apostrophe
+        / id safe), then a bounded bidirectional allShortestPaths search runs (anchored,
+        so it is fast and cannot scan the graph). Returns each path as an ordered list
+        of nodes and the relationship types between them - so you can read off the
+        intermediate nodes and mechanism in ONE call instead of probing many queries.
+
+        If no path is found within max_hops, that is reported (try a larger max_hops, or
+        the entities are only distantly connected). Returns
+        {source, target, max_hops, paths:[{hops, nodes:[...], rels:[...]}]}.
+        """
+        mh = max(1, min(int(max_hops or 4), 5))
+        kpaths = max(1, min(int(max_paths or 5), 15))
+        try:
+            sc = _resolve_candidates((source or "").strip(), source_label, 1)
+            tc = _resolve_candidates((target or "").strip(), target_label, 1)
+            if not sc or not tc:
+                return ToolResult(content=[TextContent(type="text", text=json.dumps({
+                    "source": source, "target": target,
+                    "error": "Could not resolve " + ("source" if not sc else "target") +
+                             "; call resolve_entity to find the right node."}))])
+            s, t = sc[0], tc[0]
+
+            def anchor(node, var):
+                # prefer name (reliable, indexed); fall back to identifier
+                if node.get("name"):
+                    return f"{var}.name = ${var}nm", {f"{var}nm": node["name"]}
+                return f"{var}.identifier = ${var}id", {f"{var}id": node.get("identifier")}
+
+            sa, sp = anchor(s, "a")
+            ta, tp = anchor(t, "b")
+            params = {**sp, **tp}
+            cy = (f"MATCH (a:{s['label']}),(b:{t['label']}) WHERE {sa} AND {ta} "
+                  "WITH a, b LIMIT 1 "
+                  f"MATCH path = allShortestPaths((a)-[*..{mh}]-(b)) "
+                  f"WITH path LIMIT {kpaths} "
+                  "RETURN [n IN nodes(path) | labels(n)[0] + ':' + coalesce(n.name, toString(n.identifier))] AS nodes, "
+                  "[r IN relationships(path) | type(r)] AS rels, length(path) AS hops")
+            rows = _read(cy, params)
+            # dedupe identical (nodes, rels) sequences (parallel edges produce repeats)
+            seen, paths = set(), []
+            for r in rows:
+                key = (tuple(r["nodes"]), tuple(r["rels"]))
+                if key in seen:
+                    continue
+                seen.add(key)
+                paths.append({"hops": r["hops"], "nodes": r["nodes"], "rels": r["rels"]})
+            out = {
+                "source": {"label": s["label"], "name": s.get("name"), "identifier": s.get("identifier")},
+                "target": {"label": t["label"], "name": t.get("name"), "identifier": t.get("identifier")},
+                "max_hops": mh,
+                "paths": paths,
+            }
+            if not paths:
+                out["note"] = (f"No path within {mh} hops between the resolved nodes. Try a larger "
+                               "max_hops, or they may be only distantly/indirectly connected.")
+            return ToolResult(content=[TextContent(type="text", text=json.dumps(out, default=str))])
+        except ClientError as e:
+            if "timed out" in str(e).lower():
+                raise ToolError("Path search timed out; reduce max_hops or anchor on more specific nodes.")
+            raise ToolError(f"SPOKE find_path error: {e}")
+        except Neo4jError as e:
+            raise ToolError(f"SPOKE find_path error: {e}")
+        except Exception as e:
+            logger.error(f"find_path error: {e}")
+            raise ToolError(f"find_path failed: {e}")
+
+    @mcp.tool(
         name="query_spoke",
         annotations=ToolAnnotations(
             title="Query SPOKE Biomedical Knowledge Graph",

@@ -95,6 +95,11 @@ Anatomy = UBERON; BiologicalProcess/MolecularFunction/CellularComponent = GO.
   `MATCH p = shortestPath((a)-[*..4]-(b))` with both ends anchored by identifier.
 - If a query returns 0 rows, don't thrash: re-`resolve_entity` the names, confirm the
   edge type/direction in the `edge_directory`, then retry once.
+- For **"how are X and Y connected / shortest path / what links X to Y"** questions,
+  use the **`find_path`** tool (not hand-written `shortestPath` queries). It resolves
+  both endpoints and returns the shortest path(s) as node + relationship sequences in
+  one call — read the mechanism straight off the result. Increase `max_hops` only if
+  no path is found. Don't keep probing individual multi-hop patterns by hand.
 - For **"shared / common / same-as" questions** (e.g. "other drugs that bind the same
   target", "genes shared by two diseases"), write ONE anchored graph query with a
   co-occurrence pattern — do **not** resolve and test candidate entities one-by-one:
