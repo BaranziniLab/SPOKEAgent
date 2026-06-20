@@ -133,3 +133,22 @@ subregions), so several questions involved legitimate exploration of absent data
 - Reiterated in SKILL.md (already present): on the FIRST 0-row result, call
   describe_node before trying query variants — the residual Q31/Q37/Q38 thrash is
   mostly the model exploring genuinely sparse expression data + late describe_node use.
+
+---
+
+## Batch 5 (Q41–Q50: pathways / processes / GO / vestige) — v0.3.3
+Per-Q (s/calls): Q41 24.9/3, Q42 31.5/5, Q43 18.6/3, Q44 16.1/3, Q45 77.3/13,
+Q46 95.1/21, Q47 21.2/6, Q48 28.5/4, Q49 26.1/4, Q50 38.2/7. **Mean 37.8 s / 6.9
+calls — best batch so far.** All rc=0.
+
+### Validation (no new code fix needed)
+- **vestige filtering works**: Q41 "108 *non-deprecated* pathways" via
+  `WHERE NOT coalesce(p.vestige,false)`; Q46 correctly reports "Innate Immune System
+  is marked deprecated (vestige:true)". The v0.3.x schema notes + skill guidance on
+  vestige are doing their job.
+- GO-term questions (Q43/Q44/Q48 by GO id, Q49 EC enzyme→reaction) and shared-pathway
+  set questions (Q47 EGFR∩KRAS, Q50 IL6/TNF/IL1B) all resolved + traversed cleanly.
+- Residual thrash: Q46 (21 calls) is the vestige-duplicate-pathway nuance (the
+  resolved "Innate Immune System" node is the deprecated copy; reactions hang off the
+  current copy/sub-pathways). Niche data-modeling issue; the agent still answered
+  correctly. Not worth a code change.
