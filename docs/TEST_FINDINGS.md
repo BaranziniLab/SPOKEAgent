@@ -208,3 +208,23 @@ finding an answer (Q72 found the direct TREATS edge at call 5, then probed 24 mo
   explicitly asks to "explore *multiple* relationship types", so the model enumerates
   by design even though find_path gives the shortest. (Q74/Q79 symptom/condition-set
   → disease ranking are inherently broad subgraph questions; answered correctly.)
+
+---
+
+## Batch 9 (Q81–Q90: performance stressors) — v0.4.0  ★ validates the perf fixes
+Per-Q (s/calls): Q81 21.6/3, Q82 156.3/15, Q83 12.3/1, Q84 57.6/5, Q85 46.0/4,
+Q86 67.5/9, Q87 28.0/3, Q88 31.8/4, Q89 65.9/11, Q90 122.8/15. **Mean 7.0 calls,
+ZERO timeouts, ZERO crashes** — the safety-LIMIT + per-query transaction timeout
+held on every stressor.
+
+### Structure-awareness confirmed (the core goal)
+- **Q81 "how many human proteins"**: agent resolved Homo sapiens → Organism and ran
+  `(:Organism)-[:ENCODES_OeP]->(:Protein) count` (202,161) — it did **not** scan
+  Protein by `org_ncbi_id` (the measured 26 s trap). 21.6 s / 3 calls.
+- **Q88 E. coli proteins**: same efficient Organism→ENCODES_OeP path, no scan.
+- **Q83 INTERACTS_PiC edge count**: answered from schema stats (~69.2M) in 1 call,
+  no traversal of the giant edge.
+- **Q87 TP53 hub fan-out**: capped with LIMIT 10, no neighborhood explosion.
+- Q82 (compound pairs sharing a protein — the deliberate blow-up) and Q90 (statin
+  class side-effect aggregation) ran longer (15 calls) but completed cleanly within
+  the guards. No code change needed; this batch validates v0.3–0.4 perf work.
