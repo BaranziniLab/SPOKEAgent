@@ -1,90 +1,79 @@
-# SPOKE Agent — detailed change log
+# Changelog
 
-All changes are to the **extension** (`~/.config/biorouter/extensions/spokeagent/`),
-tested through the real BioRouter CLI + MiMo (mimo-v2.5-pro). Pristine baseline
-preserved in `spoke-work/extension-orig/`.
+All notable changes to SPOKEAgent. The 0.3.x–0.4.x line is a structure-aware
+overhaul developed and validated by driving the **real BioRouter CLI + the XiaoMi
+MiMo model + this extension** over a 100-question suite (10 themed batches). Each
+fix below is tied to a problem observed in those runs; see
+[`docs/TEST_FINDINGS.md`](TEST_FINDINGS.md) for the per-batch problem→fix log and
+[`evaluation/`](../evaluation) for the questions, harness, and raw results.
 
----
+## [0.4.1]
+### Fixed
+- `resolve_entity` now also does an **identifier-exact match within the given
+  label** (indexed). Essential for identifier-keyed nodes that have no `name` and
+  no full-text index — e.g. `MiRNA`, whose identifier *is* the query
+  (`hsa-miR-21-5p`). (Batch 10 / Q92.)
 
-## v0.3.0 — fixes after Batch 1 (Q1–Q10)
+## [0.4.0]
+### Added
+- **`find_path`** — a 5th tool. Resolves two endpoints and runs a bounded, anchored
+  `allShortestPaths` (≤5 hops, deduped), returning each path as an ordered list of
+  nodes and the relationship types between them. Answers "how are X and Y connected
+  / shortest path / what links X to Y" in one call instead of many hand-written
+  `shortestPath`/multi-hop probes. (Batch 8; e.g. aspirin→colorectal cancer
+  157 s/29 calls → 24 s/6 calls.)
 
-### Files changed
-- `src/spokeagent/server.py` — rewritten (2 tools → 3 tools; ~140 → ~430 lines)
-- `skills/spoke-knowledge-graph/SKILL.md` — rewritten with correct, verified guidance
-- `manifest.json` — `version` 0.2.0→0.3.0, `tools_count` 2→3
+## [0.3.3]
+### Fixed
+- `resolve_entity`/`describe_node` normalise a `label` of the literal string
+  `"None"`/`"null"`/`"any"`/`""` to "no label" (models sometimes pass these),
+  instead of building a nonexistent `<None>NamesAndIds` index. (Batch 4 / Q31.)
 
-### server.py — exactly what changed
+## [0.3.2]
+### Added
+- `resolve_entity` returns a **`degree`** (relationship count) per candidate and
+  ranks same-name variants by connectivity, so the canonical, well-connected node
+  wins (e.g. `Warfarin` deg 1100 over `warfarin` deg 7). (Batch 3 / Q29.)
 
-**1. `get_spoke_schema` — was a raw dump, now compact/curated/cached.**
-- *Before:* returned `clean_schema(apoc.meta.schema())` — every one of 264 rel types
-  and all properties, unordered, with ZIP/location junk (`PARTOF_LpL`) surfaced
-  first. Tens of KB. Re-fetched on every call. Strongly correlated with the Q5
-  crash (rc=-15, oversized response).
-- *After:* a single fast `apoc.meta.stats()` call → `{node_labels:[{label,count}…]
-  (sorted desc), edge_directory:[{source,rel,target,count,expensive}…] (sorted desc,
-  >1M flagged), usage_notes:[…]}`. Source/target reconstructed by regex-parsing the
-  `(:X)-[:R]->()` / `()-[:R]->(:Y)` pattern keys. **11.7 KB, 0.13 s, cached in
-  memory** (`refresh=true` to force re-read). Measured: shows `ASSOCIATES_DaG =
-  Disease→Gene` directly so the model stops guessing edge names. (Fixes P1, P5, P6, P8.)
+## [0.3.1]
+### Added
+- `resolve_entity` **OR-token full-text fallback** when the strict phrase match
+  returns nothing, so common names resolve (e.g. "beta blockers" →
+  "Adrenergic beta-Antagonists"). (Batch 2 / Q15.)
+- `get_spoke_schema` now lists **key edge properties** (e.g. `BINDS_CbP` →
+  `bindingdb_k`/`bindingdb_ic50s`; `ASSOCIATES_DaG` → `diseases_scores`/`gwas_pvalue`;
+  regulation edges → `zscore`/`pvalue`) plus a "use `keys(r)`" tip. (Batch 2 / Q16.)
+### Changed
+- `SKILL.md`: route shared/common-neighbour questions to a single anchored
+  co-occurrence query rather than per-candidate resolution.
 
-**2. NEW tool `resolve_entity(query, label?, limit?)` — canonical-node resolver.**
-- Strategy stack, all index-backed (never scans the 43M graph):
-  - identifier lookups, label inferred from prefix (DOID:/UBERON:/GO:/CL:/CHEBI:/
-    inchikey:/FOODON:/Reactome/WP/SNOMED_), UMLS `C#####`→SideEffect, MeSH
-    `D######`→Symptom, Entrez integer ids → Gene/Organism, `ENSG…`→Gene.ensembl,
-    `DB#####`→Compound.xrefs, numeric→Disease.omim_list.
-  - exact case-sensitive name (range index) + full-text phrase query on
-    `<Label>NamesAndIds` / global `anyNamesAndIds` (case-insensitive, synonym-aware),
-    with case-insensitive-exact matches prioritised.
-- Returns ranked `{label, name, identifier, matched_on, score}`. Measured: warfarin→
-  **Warfarin** (the rich DrugBank node, not the empty lowercase one), "Parkinson's
-  disease"→DOID:14330, DOID:9352→type 2 diabetes, ENSG00000130203→APOE, DB00619→
-  Imatinib, EGFR→Gene 1956 — all in 0.08–3 s. (Fixes P2, P3; pre-empts Batch 6.)
+## [0.3.0] — structure-aware overhaul
+### Added
+- **`resolve_entity(query, label?, limit?)`** — maps a free-text name / synonym /
+  brand / identifier to canonical node(s) using SPOKE's range + full-text indexes.
+  Handles case-sensitivity, apostrophes, and the DOID / Entrez / Ensembl / DrugBank /
+  UMLS CUI / UBERON / GO namespaces. Always fast, never scans the graph.
+- **`describe_node(query, label?)`** — returns a node's real relationship profile
+  (`{dir, rel, neighbor_label, count}`), so the agent picks the right edge and, when
+  an expected edge is absent (e.g. Parkinson's has no `PRESENTS_DpS`), reports the
+  absence instead of thrashing. (Crohn's localization 83 s/22 calls → 28 s/7.)
+### Changed
+- **`get_spoke_schema`** is now compact, curated, and cached: a node table by count
+  + a `Source-[:REL]->Target` edge directory with counts and `>1M` "expensive" flags,
+  plus usage notes (identifier namespaces, `vestige` filtering, performance rules).
+  ~12 KB derived live from `apoc.meta.stats`, vs the previous tens-of-KB unordered
+  `apoc.meta.schema` dump. Schema-change tolerant (everything is introspected).
+- **`query_spoke`** hardened: a safety `LIMIT` is auto-applied to unbounded,
+  non-aggregate queries; a per-query transaction timeout aborts blow-ups; output is
+  trimmed (drops `Linkout`/`license` noise, truncates long strings, caps total size);
+  empty/limited/truncated results carry coaching metadata. Read-only guard unchanged.
+- **`SKILL.md`** rewritten around a resolve-first workflow with a *correct* edge
+  cheat-sheet. Removed the fictional `(:Compound)-[:TARGETS_CtG]->(:Gene)` edge and
+  the non-existent `r.score` property; documented the real drug→gene path
+  `(:Compound)-[:BINDS_CbP]->(:Protein)<-[:ENCODES_GeP]-(:Gene)`, identifier
+  namespaces, `parameters` usage, `vestige` filtering, and the "never scan Protein by
+  organism" rule.
 
-**3. `query_spoke` — hardened.**
-- *Safety LIMIT:* `_maybe_add_limit` appends `LIMIT 200` to unbounded, non-aggregate
-  read queries (skips ones with LIMIT/SKIP/CALL or count/collect/sum/avg/min/max),
-  returning a `meta.note`. Stops accidental full-graph scans. (Fixes P7.)
-- *Transaction timeout:* all reads now run in `session.begin_transaction(timeout=45)`
-  so pathological queries abort instead of hanging the agent; timeout maps to a clear
-  "anchor + avoid expensive edges" message.
-- *Output trimming:* `_trim` recursively drops noise props (`Linkout` HTML, `license`)
-  and truncates >600-char strings; total payload capped at 60 KB with a `meta.truncated`
-  note. (Fixes P6, P8.)
-- *Empty-result coaching:* 0 rows → `meta.empty` telling the model to re-`resolve_entity`
-  or check edge direction, instead of thrashing.
-- Write-guard, read-only behaviour and the obfuscated-credential bootstrap are unchanged.
-
-### SKILL.md — what changed
-Rewrote around the **resolve-first golden workflow**, a **correct edge cheat-sheet**
-(removed the fictitious `TARGETS_CtG` and `r.score`; added the real
-`Compound-BINDS_CbP->Protein<-ENCODES_GeP-Gene` drug-target pattern), identifier
-namespaces, `parameters` usage for apostrophes/case, `vestige` filtering, the
-"never scan Protein by organism" rule, expensive-edge anchoring, and a worked example.
-
-### Batch-1 baseline to beat
-mean ≈ 66 s, ≈ 10 tool calls/question, 1 crash (Q5), repeated case/apostrophe
-failures, wrong-edge guesses. Re-run results recorded below.
-
-### Addendum — `describe_node` (4th tool), still part of the Batch-1 fix set
-Batch-1 v5 (after F1–F4) removed crashes and case/apostrophe failures but Q4/Q6/Q10
-still **thrashed when the data was genuinely sparse** (Parkinson's has no PRESENTS_DpS;
-Crohn's has no LOCALIZES_DlA), the agent trying many edge variations.
-
-**Added `describe_node(query, label?)`** — resolves the node then returns its real
-relationship profile `{dir, rel, neighbor_label, count}` (anchored, <0.2s). The agent
-can see at a glance which edges exist and conclude an absence instead of guessing.
-SKILL.md updated to call `describe_node` on 0-row results and for "how is X connected"
-questions; `manifest.tools_count` → 4.
-
-Validation (4-tool extension): Q6 **82.7 s/22 calls → 28.3 s/7 calls**, correctly
-reporting "Crohn's has no LOCALIZES_DlA". Q4 still ~15 calls — MiMo elects to keep
-exploring Parkinson's subtypes/general knowledge even after seeing no PRESENTS_DpS;
-this is largely model behaviour, mitigated but not eliminated.
-
-### Batch-1 net result (baseline → fixed)
-- Crashes: 1 (Q5) → 0.
-- Case/apostrophe failures: pervasive → eliminated (resolve_entity + parameters).
-- Wrong/fictional edges (`TARGETS_CtG`, `r.score`): in skill → removed/corrected.
-- Mean latency ~66 s → ~50 s (and far fewer *failed* calls); sparse-data thrash
-  greatly reduced via describe_node. Schema response ~tens of KB → 11.7 KB cached.
+## [0.2.0] — baseline
+- Two tools: `get_spoke_schema` (raw `apoc.meta.schema()`) and `query_spoke`
+  (arbitrary read-only Cypher). Bundled `spoke-knowledge-graph` skill.

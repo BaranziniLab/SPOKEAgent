@@ -1,7 +1,7 @@
 {
   "name": "spokeagent",
   "display_name": "SPOKEAgent",
-  "description": "Read-only Cypher queries against the SPOKE biomedical knowledge graph (Neo4j). Access requires a passcode from UCSF.",
+  "description": "Structure-aware access to the SPOKE biomedical knowledge graph (Neo4j). Compact live schema, entity/identifier resolution, node profiling, shortest-path finding, and guarded read-only Cypher over diseases, genes, proteins, compounds, pathways and more. Access requires a passcode from UCSF.",
   "version": "0.4.1",
   "entry_point": "spokeagent",
   "repository": "https://github.com/BaranziniLab/SPOKEAgent",
@@ -26,7 +26,7 @@
   "skills": [
     {
       "name": "spoke-knowledge-graph",
-      "description": "Traverse the SPOKE biomedical knowledge graph to find relationships between diseases, genes, compounds, and biological entities"
+      "description": "Resolve entities and traverse the SPOKE biomedical knowledge graph (diseases, genes, compounds, proteins, pathways, anatomy, side effects) structure-aware."
     }
   ]
 }
