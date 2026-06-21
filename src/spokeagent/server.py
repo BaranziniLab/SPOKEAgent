@@ -345,6 +345,15 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
                           {"q": q, "lim": limit}), "name:exact")
             except Exception:
                 pass
+            # Also try identifier-exact within the label (indexed). Essential for
+            # nodes keyed by identifier with no `name`/full-text index, e.g. MiRNA
+            # whose identifier IS the query (hsa-miR-21-5p).
+            try:
+                add(_read(f"MATCH (n:{label}) WHERE n.identifier = $q "
+                          "RETURN labels(n)[0] AS l, n.name AS name, n.identifier AS id LIMIT $lim",
+                          {"q": q, "lim": limit}), "identifier:exact")
+            except Exception:
+                pass
         # full-text phrase (case-insensitive, includes synonyms); prioritise ci-exact
         idx = (label + "NamesAndIds") if label else "anyNamesAndIds"
         phrase = '"' + q.replace('"', " ") + '"'

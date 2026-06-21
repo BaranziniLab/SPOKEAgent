@@ -228,3 +228,43 @@ held on every stressor.
 - Q82 (compound pairs sharing a protein — the deliberate blow-up) and Q90 (statin
   class side-effect aggregation) ran longer (15 calls) but completed cleanly within
   the guards. No code change needed; this batch validates v0.3–0.4 perf work.
+
+---
+
+## Batch 10 (Q91–Q100: schema robustness + misc node types) — v0.4.0
+Per-Q (s/calls): Q91 21.7/1, Q92 69.4/16, Q93 102.7/15, Q94 86.0/14, Q95 59.5/8,
+Q96 195.2/27, Q97 36.5/9, Q98 72.1/5, Q99 98.5/11, Q100 219.4/35. Mean 96.1 s / 14.1
+calls (highest — Q100 is the full mechanistic-story capstone; Q96 is the 3-hop
+DietarySupplement→Blend→Compound chain).
+
+### Validation
+- **Schema robustness**: Q91 "what node/relationship types exist, which connects
+  disease→gene" answered from the compact `get_spoke_schema` in **1 call**.
+- **Assumption surfacing** (a stated goal): Q99 explicitly reported "Resolved to:
+  breast cancer (DOID:…)" before answering.
+- **vestige robustness**: Q98 "pathways for AKT1, deprecated excluded" → 200
+  non-deprecated pathways.
+
+### New problem + fix (v0.4.1)
+- **P14 — identifier-keyed, nameless nodes**: MiRNA has no `name` and no full-text
+  index; its identifier *is* the query (`hsa-miR-21-5p`). resolve_entity returned
+  nothing → Q92 thrashed (16 calls) before hand-writing `{identifier:'hsa-miR-21-5p'}`.
+- **F11** resolve_entity now also does an **identifier-exact match within the given
+  label** (indexed), so MiRNA (and any id-keyed node) resolves directly. Verified:
+  resolve_entity("hsa-miR-21-5p", "MiRNA") → MiRNA hsa-miR-21-5p.
+
+---
+
+## Overall (100 questions, real BioRouter + MiMo + spokeagent)
+| | mean latency | mean tool calls | crashes / no-answer |
+|---|---|---|---|
+| Baseline (batch 1, original 2-tool extension) | 66.2 s | 10.3 | **1** |
+| After fixes (all 100, v0.4.1, 5 tools) | 62.2 s | 10.8 | **0** |
+
+The headline isn't raw call count (the new flow spends 2 deliberate calls/question on
+`get_spoke_schema` + `resolve_entity`) — it's that the **failures are gone**: no
+crashes, no case/apostrophe query errors, correct edges (no fictional `TARGETS_CtG`),
+structure-aware performance (human-protein count via `ENCODES_OeP`, not the 26 s
+Protein-by-organism scan), graceful handling of absent data via `describe_node`, and
+one-call connectivity via `find_path`. Per-question wins where the baseline thrashed:
+Q2 129→13 s, Q3 62→11 s, Q6 (Crohn's) 83→28 s, Q72 (path) 157→24 s.
