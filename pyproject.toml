@@ -7,7 +7,7 @@ name = "spokeagent"
 version = "0.4.1"
 description = "An MCP server for querying the SPOKE biomedical knowledge graph for rapid biomedical knowledge inference"
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 authors = [
     {name = "Wanjun Gu", email = "wanjun.gu@ucsf.edu"},
     {name = "Gianmarco Bellucci", email = "gianmarco.bellucci@ucsf.edu"}
