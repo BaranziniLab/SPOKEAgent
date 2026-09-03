@@ -30,8 +30,8 @@ from typing import Any, Literal, Optional
 
 from fastmcp.exceptions import ToolError
 from fastmcp.server import FastMCP
-from fastmcp.tools.tool import ToolResult, TextContent
-from mcp.types import ToolAnnotations
+from fastmcp.tools import ToolResult
+from mcp.types import TextContent, ToolAnnotations
 from neo4j import Driver, GraphDatabase, Result, Transaction
 from neo4j.exceptions import ClientError, Neo4jError
 from pydantic import BaseModel, Field
