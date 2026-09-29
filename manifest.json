@@ -2,16 +2,16 @@
   "name": "spokeagent",
   "display_name": "SPOKEAgent",
   "description": "Structure-aware access to the SPOKE biomedical knowledge graph (Neo4j). Compact live schema, entity/identifier resolution, node profiling, shortest-path finding, and guarded read-only Cypher over diseases, genes, proteins, compounds, pathways and more. Access requires a passcode from UCSF.",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "entry_point": "spokeagent",
   "repository": "https://github.com/BaranziniLab/SPOKEAgent",
-  "tools_count": 5,
+  "tools_count": 8,
   "env_vars": [
     {
       "key": "SPOKEAGENT_PASSCODE",
-      "required": true,
+      "required": false,
       "auto_propagate": false,
-      "description": "Access passcode provided by UCSF",
+      "description": "Legacy UCSF passcode; alternatively configure the KNOWLEDGE_GRAPH fields below.",
       "secret": true
     },
     {
@@ -21,12 +21,44 @@
       "default": "INFO",
       "description": "Logging level",
       "secret": false
+    },
+    {
+      "key": "KNOWLEDGE_GRAPH_URI",
+      "required": false,
+      "auto_propagate": false,
+      "description": "Direct Neo4j URI; use together with username/password instead of a passcode.",
+      "secret": false
+    },
+    {
+      "key": "KNOWLEDGE_GRAPH_USERNAME",
+      "required": false,
+      "auto_propagate": false,
+      "description": "Direct Neo4j username",
+      "secret": true
+    },
+    {
+      "key": "KNOWLEDGE_GRAPH_PASSWORD",
+      "required": false,
+      "auto_propagate": false,
+      "description": "Direct Neo4j password",
+      "secret": true
+    },
+    {
+      "key": "KNOWLEDGE_GRAPH_DATABASE",
+      "required": false,
+      "auto_propagate": false,
+      "description": "Direct Neo4j database (defaults to neo4j)",
+      "secret": false
     }
   ],
   "skills": [
     {
       "name": "spoke-knowledge-graph",
       "description": "Resolve entities and traverse the SPOKE biomedical knowledge graph (diseases, genes, compounds, proteins, pathways, anatomy, side effects) structure-aware."
+    },
+    {
+      "name": "spokeagent-query-jobs",
+      "description": "Plan and monitor read-only background database exports without MCP timeouts."
     }
   ]
 }

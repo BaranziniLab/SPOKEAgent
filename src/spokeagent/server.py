@@ -7,7 +7,7 @@ for rapid biomedical knowledge inference.
 This server is structure-aware: it introspects the live SPOKE schema (node
 labels, relationship types and counts, indexes) at runtime, so it tolerates
 schema changes (new/renamed labels or edges, added properties) without code
-changes. It exposes three tools:
+changes. Its discovery and query tools include:
 
   * get_spoke_schema  - compact, cached, curated schema (node table + a
                         Source->REL->Target edge directory with counts and
@@ -26,6 +26,7 @@ import logging
 import os
 import re
 import sys
+import time
 from typing import Any, Literal, Optional
 
 from fastmcp.exceptions import ToolError
@@ -33,21 +34,15 @@ from fastmcp.server import FastMCP
 from fastmcp.tools import ToolResult
 from mcp.types import TextContent, ToolAnnotations
 from neo4j import Driver, GraphDatabase, Result, Transaction
-from neo4j.exceptions import ClientError, Neo4jError
+from neo4j.exceptions import AuthError, ClientError, Neo4jError, ServiceUnavailable, SessionExpired
 from pydantic import BaseModel, Field
+
+from spokeagent.jobs import INSTRUCTIONS as JOB_INSTRUCTIONS, register_job_tools
 
 logger = logging.getLogger("SPOKEAgent")
 
 # SPOKE configuration
-_pc = os.environ.get("SPOKEAGENT_PASSCODE")
-if not _pc:
-    raise RuntimeError("SPOKEAGENT_PASSCODE environment variable is required")
-_pk: bytes = _pc.encode()
-_r  = lambda s: bytes(b ^ _pk[i % len(_pk)] for i, b in enumerate(base64.b64decode(s))).decode()
-SPOKE_URI      = _r("ER8DH18bTh8cHBsKRQZTDUIZEAMJRQBQFFZbRUhY")
-SPOKE_USERNAME = _r("HRUAXw8=")
-SPOKE_PASSWORD = _r("ICAgICBQBBo=")
-SPOKE_DATABASE = _r("AAAAAAA=")
+from spokeagent.query_backend import from_environment
 
 # --- query-handling constants -------------------------------------------------
 DEFAULT_SAFETY_LIMIT = 200       # appended to unbounded, non-aggregate queries
@@ -82,10 +77,10 @@ _LIMIT_RE = re.compile(r"\blimit\b", re.IGNORECASE)
 
 class SPOKEConfig(BaseModel):
     """SPOKE knowledge graph configuration"""
-    uri: str = Field(default=SPOKE_URI, description="SPOKE knowledge graph connection URI")
-    username: str = Field(default=SPOKE_USERNAME, description="SPOKE username")
-    password: str = Field(default=SPOKE_PASSWORD, description="SPOKE password")
-    database: str = Field(default=SPOKE_DATABASE, description="SPOKE database name")
+    uri: str = Field(..., description="SPOKE knowledge graph connection URI")
+    username: str = Field(..., description="SPOKE username")
+    password: str = Field(..., description="SPOKE password")
+    database: str = Field(..., description="SPOKE database name")
     log_level: str = Field("INFO", description="Logging level (DEBUG, INFO, WARNING, ERROR)")
 
 
@@ -107,6 +102,47 @@ def _maybe_add_limit(query: str, limit: int = DEFAULT_SAFETY_LIMIT) -> tuple[str
     return f"{q}\nLIMIT {limit}", True
 
 
+def _safe_tool_error(error: Exception) -> ToolError:
+    if isinstance(error, ToolError):
+        return error
+    logger.error("%s", type(error).__name__)
+    code = getattr(error, "code", "") or ""
+    if isinstance(error, AuthError) or ".Security." in code:
+        return ToolError("SPOKE authentication or authorization failed. Check credentials and database permissions through the trusted configuration UI.")
+    if isinstance(error, TimeoutError) or "Timeout" in type(error).__name__ or "TimedOut" in code or "Timeout" in code:
+        return ToolError("SPOKE query timed out. Narrow indexed filters or reduce path hops. For a legitimately long query use spoke-submit_query_job and monitor spoke-query_job_status.")
+    if code == "Neo.ClientError.Procedure.ProcedureNotFound":
+        return ToolError("SPOKE schema procedure unavailable. Check that the APOC plugin is installed and enabled.")
+    if isinstance(error, (ServiceUnavailable, SessionExpired)):
+        return ToolError("SPOKE connection unavailable. Check the database endpoint, network and service availability.")
+    if ".Statement." in code or ".Schema." in code:
+        return ToolError("SPOKE query or schema error. Check the query syntax, parameters and live schema before retrying.")
+    return ToolError("SPOKE operation failed. Check database connectivity, configuration, query and permissions. Raw error details are withheld to protect data.")
+
+
+def _remaining_budget(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ToolError("SPOKE tool time budget exhausted. Narrow the entity lookup or use a monitored query job.")
+    return remaining
+
+
+def _safe_label(label: str) -> str:
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label):
+        raise ToolError("Invalid SPOKE label; use a label returned by get_spoke_schema.")
+    return label
+
+
+def _optional_lookup_error(error: ClientError) -> None:
+    # Optional indexes and heterogeneous legacy properties may be unavailable.
+    if error.code not in {
+        "Neo.ClientError.Schema.IndexNotFound",
+        "Neo.ClientError.Procedure.ProcedureNotFound",
+        "Neo.ClientError.Statement.TypeError",
+    }:
+        raise error
+
+
 def _trim(obj: Any) -> Any:
     """Recursively drop noisy node properties and truncate huge strings."""
     if isinstance(obj, dict):
@@ -122,25 +158,24 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
     """Create SPOKEAgent server with SPOKE knowledge graph tools"""
 
     logging.basicConfig(level=getattr(logging, config.log_level.upper()))
-    mcp = FastMCP("SPOKEAgent")
+    mcp = FastMCP("SPOKEAgent", instructions=JOB_INSTRUCTIONS)
 
     # Knowledge graph driver initialization
     try:
         kg_driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
-        logger.info(f"SPOKE knowledge graph driver initialized for {config.uri}")
+        logger.info("SPOKE knowledge graph driver initialized")
     except Exception as e:
-        logger.error(f"Failed to initialize SPOKE driver: {e}")
-        raise ToolError(f"SPOKE initialization failed: {e}")
+        raise _safe_tool_error(e) from None
 
     _schema_cache: dict[str, Any] = {}
 
     # ---- low-level helpers ---------------------------------------------------
-    def _read(cypher: str, params: Optional[dict] = None, timeout: int = QUERY_TIMEOUT_S):
+    def _read(cypher: str, params: Optional[dict] = None, timeout: int = QUERY_TIMEOUT_S, max_rows: int | None = None):
         """Run a read query in a time-bounded read transaction; return rows."""
         with kg_driver.session(database=config.database, default_access_mode="READ") as session:
             with session.begin_transaction(timeout=timeout) as tx:
                 result = tx.run(cypher, params or {})
-                rows = [r.data() for r in result]
+                rows = [r.data() for r in (result.fetch(max_rows) if max_rows is not None else result)]
                 tx.commit()
                 return rows
 
@@ -214,8 +249,9 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
 
     def get_schema(force: bool = False) -> dict:
         if force or not _schema_cache:
+            refreshed = _build_schema()
             _schema_cache.clear()
-            _schema_cache.update(_build_schema())
+            _schema_cache.update(refreshed)
         return _schema_cache
 
     # ---- tools ---------------------------------------------------------------
@@ -243,28 +279,36 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
         try:
             schema = get_schema(force=bool(refresh))
             return ToolResult(content=[TextContent(type="text", text=json.dumps(schema))])
-        except ClientError as e:
-            if "ProcedureNotFound" in str(e):
-                raise ToolError("SPOKE APOC plugin not installed. Please install and enable APOC.")
-            raise ToolError(f"SPOKE client error: {e}")
-        except Neo4jError as e:
-            raise ToolError(f"SPOKE error: {e}")
-        except Exception as e:
-            logger.error(f"Error retrieving SPOKE schema: {e}")
-            raise ToolError(f"Unexpected error retrieving SPOKE schema: {e}")
+        except Exception as error:
+            raise _safe_tool_error(error) from None
 
-    def _resolve_candidates(q: str, label: Optional[str], limit: int) -> list[dict]:
+    def _resolve_candidates(q: str, label: Optional[str], limit: int, deadline: float | None = None) -> list[dict]:
         """Shared resolver used by resolve_entity and describe_node. Returns a
         ranked list of {label, name, identifier, matched_on, score}."""
         # Models sometimes pass the literal strings "None"/"null"/"any" for "no
         # label"; treat those as unset rather than a (nonexistent) label.
         if label is not None and str(label).strip().lower() in ("", "none", "null", "any", "all"):
             label = None
+        if label is not None:
+            label = _safe_label(label)
+        if not q:
+            raise ToolError("Entity query must not be empty.")
+        limit = max(1, min(int(limit), 25))
+        deadline = deadline if deadline is not None else time.monotonic() + 35
+
+        def lookup(cypher, params):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ToolError("Entity resolution exceeded its time budget. Specify a label and exact identifier.")
+            return _read(cypher, params, timeout=min(QUERY_TIMEOUT_S, remaining))
+
         results: list[dict] = []
         seen: set = set()
 
         def add(rows, matched_on):
             for row in rows:
+                if label and row.get("l") != label:
+                    continue
                 key = (row.get("l"), str(row.get("id")), row.get("name"))
                 if key in seen:
                     continue
@@ -289,7 +333,7 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
                 if up.startswith(pref):
                     id_labels = labs
                     break
-            if label and not id_labels:
+            if label:
                 id_labels = [label]
             if not id_labels and re.match(r"^C\d{5,}$", up):      # UMLS CUI
                 id_labels = ["SideEffect"]
@@ -300,86 +344,86 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
                              "SideEffect", "Symptom", "BiologicalProcess", "Protein"]
             for lab in id_labels:
                 try:
-                    add(_read(
+                    add(lookup(
                         f"MATCH (n:{lab}) WHERE n.identifier = $q "
                         "RETURN labels(n)[0] AS l, n.name AS name, n.identifier AS id LIMIT $lim",
                         {"q": q, "lim": limit}), f"identifier:{lab}")
-                except Exception:
-                    pass
-            if q.isdigit():                                       # Entrez integer ids
-                for lab in ("Gene", "Organism"):
+                except ClientError as error:
+                    _optional_lookup_error(error)
+            if q.isdigit() and label in (None, "Gene", "Organism"):  # Entrez integer ids
+                for lab in ([label] if label else ["Gene", "Organism"]):
                     try:
-                        add(_read(
+                        add(lookup(
                             f"MATCH (n:{lab}) WHERE n.identifier = $qi "
                             "RETURN labels(n)[0] AS l, n.name AS name, n.identifier AS id LIMIT $lim",
                             {"qi": int(q), "lim": limit}), f"entrez:{lab}")
-                    except Exception:
-                        pass
-            if re.match(r"^ENSG\d+", up):                         # Ensembl gene id
+                    except ClientError as error:
+                        _optional_lookup_error(error)
+            if label in (None, "Gene") and re.match(r"^ENSG\d+", up):                         # Ensembl gene id
                 try:
-                    add(_read("MATCH (g:Gene) WHERE g.ensembl = $q "
+                    add(lookup("MATCH (g:Gene) WHERE g.ensembl = $q "
                               "RETURN 'Gene' AS l, g.name AS name, g.identifier AS id LIMIT $lim",
                               {"q": q, "lim": limit}), "ensembl")
-                except Exception:
-                    pass
-            if re.match(r"^DB\d+$", up):                          # DrugBank xref (unindexed)
+                except ClientError as error:
+                    _optional_lookup_error(error)
+            if label in (None, "Compound") and re.match(r"^DB\d+$", up):                          # DrugBank xref (unindexed)
                 try:
-                    add(_read("MATCH (c:Compound) WHERE any(x IN c.xrefs WHERE x ENDS WITH $q) "
+                    add(lookup("MATCH (c:Compound) WHERE any(x IN c.xrefs WHERE x ENDS WITH $q) "
                               "RETURN 'Compound' AS l, c.name AS name, c.identifier AS id LIMIT $lim",
                               {"q": q, "lim": limit}), "xref:drugbank")
-                except Exception:
-                    pass
-            if q.isdigit():                                       # OMIM on Disease.omim_list
+                except ClientError as error:
+                    _optional_lookup_error(error)
+            if q.isdigit() and label in (None, "Disease"):          # OMIM on Disease.omim_list
                 try:
-                    add(_read("MATCH (d:Disease) WHERE $q IN d.omim_list "
+                    add(lookup("MATCH (d:Disease) WHERE $q IN d.omim_list "
                               "RETURN 'Disease' AS l, d.name AS name, d.identifier AS id LIMIT $lim",
                               {"q": q, "lim": limit}), "omim")
-                except Exception:
-                    pass
+                except ClientError as error:
+                    _optional_lookup_error(error)
 
         # ---- name strategies -------------------------------------------------
         if label:                                                # exact, case-sensitive (index)
             try:
-                add(_read(f"MATCH (n:{label}) WHERE n.name = $q "
+                add(lookup(f"MATCH (n:{label}) WHERE n.name = $q "
                           "RETURN labels(n)[0] AS l, n.name AS name, n.identifier AS id LIMIT $lim",
                           {"q": q, "lim": limit}), "name:exact")
-            except Exception:
-                pass
+            except ClientError as error:
+                _optional_lookup_error(error)
             # Also try identifier-exact within the label (indexed). Essential for
             # nodes keyed by identifier with no `name`/full-text index, e.g. MiRNA
             # whose identifier IS the query (hsa-miR-21-5p).
             try:
-                add(_read(f"MATCH (n:{label}) WHERE n.identifier = $q "
+                add(lookup(f"MATCH (n:{label}) WHERE n.identifier = $q "
                           "RETURN labels(n)[0] AS l, n.name AS name, n.identifier AS id LIMIT $lim",
                           {"q": q, "lim": limit}), "identifier:exact")
-            except Exception:
-                pass
+            except ClientError as error:
+                _optional_lookup_error(error)
         # full-text phrase (case-insensitive, includes synonyms); prioritise ci-exact
         idx = (label + "NamesAndIds") if label else "anyNamesAndIds"
         phrase = '"' + q.replace('"', " ") + '"'
         try:
-            ft = _read(
+            ft = lookup(
                 "CALL db.index.fulltext.queryNodes($idx, $q) YIELD node, score "
                 "RETURN labels(node)[0] AS l, node.name AS name, node.identifier AS id, score "
                 "LIMIT 25", {"idx": idx, "q": phrase})
             ci_exact = [r for r in ft if (r.get("name") or "").lower() == q.lower()]
             add(ci_exact, "name:exact-ci")
             add(ft, "name:fulltext")
-        except Exception as e:
-            logger.debug(f"fulltext resolve failed for {idx}: {e}")
+        except ClientError as error:
+            _optional_lookup_error(error)
 
         # Fallback: if the strict phrase matched nothing, retry full-text with the
         # bare tokens (OR semantics). Catches common names that don't appear verbatim
         # (e.g. "beta blockers" -> "Adrenergic beta-Antagonists").
         if not results and len(q) >= 3 and not looks_like_id:
             try:
-                loose = _read(
+                loose = lookup(
                     "CALL db.index.fulltext.queryNodes($idx, $q) YIELD node, score "
                     "RETURN labels(node)[0] AS l, node.name AS name, node.identifier AS id, score "
                     "LIMIT 15", {"idx": idx, "q": q})
                 add(loose, "name:fulltext-loose")
-            except Exception as e:
-                logger.debug(f"loose fulltext resolve failed for {idx}: {e}")
+            except ClientError as error:
+                _optional_lookup_error(error)
 
         def exact_rank(c):
             mo = c.get("matched_on", "")
@@ -397,14 +441,16 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
                 lab = c.get("label")
                 if not lab:
                     continue
+                lab = _safe_label(lab)
                 anchor = "n.identifier = $v" if c.get("identifier") is not None else "n.name = $v"
                 val = c.get("identifier") if c.get("identifier") is not None else c.get("name")
                 # f-string: {lab} interpolates, {{ }} become literal braces for COUNT{...}
                 cy = f"MATCH (n:{lab}) WHERE {anchor} RETURN COUNT{{(n)--()}} AS d LIMIT 1"
                 try:
-                    d = _read(cy, {"v": val})
+                    d = lookup(cy, {"v": val})
                     c["degree"] = d[0]["d"] if d else None
-                except Exception:
+                except ClientError as error:
+                    _optional_lookup_error(error)
                     c["degree"] = None
             # re-rank: exact matches first, then most-connected, then full-text score
             top.sort(key=lambda c: (exact_rank(c), -(c.get("degree") or 0), -(c.get("score") or 0)))
@@ -435,7 +481,8 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
         fail: case-sensitivity (exact {name:...} is case-sensitive), apostrophes,
         synonyms/brand names, and cross-vocabulary identifiers (DOID, Entrez,
         Ensembl, DrugBank, UMLS CUI, UBERON, GO). It uses SPOKE's range and
-        full-text indexes, so it is fast and never scans the whole graph.
+        full-text indexes where available. DrugBank/OMIM cross-reference lookups
+        can scan their label; specify a label to narrow the search.
 
         Returns ranked candidates: {label, name, identifier, matched_on, score}.
         Then query by the returned exact `name` or `identifier` via the
@@ -455,11 +502,8 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
                 }))])
             return ToolResult(content=[TextContent(type="text", text=json.dumps({
                 "query": q, "label": label, "candidates": results}))])
-        except Neo4jError as e:
-            raise ToolError(f"SPOKE resolve_entity error: {e}")
-        except Exception as e:
-            logger.error(f"resolve_entity error: {e}")
-            raise ToolError(f"resolve_entity failed: {e}")
+        except Exception as error:
+            raise _safe_tool_error(error) from None
 
     @mcp.tool(
         name="describe_node",
@@ -481,8 +525,8 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
         Use this to (a) decide which relationship to traverse for a question, and
         (b) avoid thrashing - if a node has no edge of the type you expected (e.g.
         a disease with no PRESENTS_DpS symptoms, or no LOCALIZES_DlA anatomy), this
-        tells you immediately so you can report the absence instead of guessing more
-        queries. Also ideal for open-ended "how is X connected / what is near X"
+        helps establish graph coverage. Check the returned truncation flag before
+        concluding a relationship is absent. Also ideal for open-ended "how is X connected / what is near X"
         questions. The node is resolved first (handles case / apostrophes / ids).
 
         Returns {node:{label,name,identifier}, relationships:[{dir, rel, neighbor_label, count}]}.
@@ -491,13 +535,14 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
         if not q:
             raise ToolError("describe_node: empty query")
         try:
-            cands = _resolve_candidates(q, label, 1)
+            deadline = time.monotonic() + QUERY_TIMEOUT_S
+            cands = _resolve_candidates(q, label, 1, deadline)
             if not cands:
                 return ToolResult(content=[TextContent(type="text", text=json.dumps({
                     "query": q, "label": label, "node": None,
                     "hint": "Could not resolve the node; check spelling or call resolve_entity."}))])
             node = cands[0]
-            lab = node["label"]
+            lab = _safe_label(node["label"])
             anchor = "n.identifier = $id" if node.get("identifier") is not None else "n.name = $nm"
             params = {"id": node.get("identifier"), "nm": node.get("name")}
             rels = _read(
@@ -505,21 +550,20 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
                 "MATCH (n)-[r]-(m) "
                 "RETURN type(r) AS rel, labels(m)[0] AS neighbor_label, "
                 "CASE WHEN startNode(r)=n THEN '->' ELSE '<-' END AS dir, count(*) AS count "
-                "ORDER BY count DESC LIMIT 60",
-                params)
+                "ORDER BY count DESC LIMIT 61",
+                params, timeout=_remaining_budget(deadline))
             out = {
                 "node": {"label": lab, "name": node.get("name"), "identifier": node.get("identifier")},
-                "relationships": rels,
-                "note": "Only relationship types listed here exist on this node. If the edge you "
-                        "expected is absent, the data simply isn't in SPOKE for this node - report "
-                        "that rather than trying more variations.",
+                "relationships": rels[:60],
+                "truncated": len(rels) > 60,
+                "note": ("Top 60 relationship groups shown; omitted groups may exist. Query a specific "
+                         "relationship type to check absence." if len(rels) > 60 else
+                         "These are the relationship groups on the resolved node. Absence here is "
+                         "absence in this graph, not evidence of biological absence."),
             }
             return ToolResult(content=[TextContent(type="text", text=json.dumps(out, default=str))])
-        except Neo4jError as e:
-            raise ToolError(f"SPOKE describe_node error: {e}")
-        except Exception as e:
-            logger.error(f"describe_node error: {e}")
-            raise ToolError(f"describe_node failed: {e}")
+        except Exception as error:
+            raise _safe_tool_error(error) from None
 
     @mcp.tool(
         name="find_path",
@@ -543,7 +587,7 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
         tool for "how are X and Y connected / what links X to Y / shortest path" and
         subgraph-bridge questions. Both endpoints are resolved first (case / apostrophe
         / id safe), then a bounded bidirectional allShortestPaths search runs (anchored,
-        so it is fast and cannot scan the graph). Returns each path as an ordered list
+        but high-degree endpoints can still make expansion expensive). Returns each path as an ordered list
         of nodes and the relationship types between them - so you can read off the
         intermediate nodes and mechanism in ONE call instead of probing many queries.
 
@@ -554,20 +598,22 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
         mh = max(1, min(int(max_hops or 4), 5))
         kpaths = max(1, min(int(max_paths or 5), 15))
         try:
-            sc = _resolve_candidates((source or "").strip(), source_label, 1)
-            tc = _resolve_candidates((target or "").strip(), target_label, 1)
+            deadline = time.monotonic() + QUERY_TIMEOUT_S
+            sc = _resolve_candidates((source or "").strip(), source_label, 1, deadline)
+            tc = _resolve_candidates((target or "").strip(), target_label, 1, deadline)
             if not sc or not tc:
                 return ToolResult(content=[TextContent(type="text", text=json.dumps({
                     "source": source, "target": target,
                     "error": "Could not resolve " + ("source" if not sc else "target") +
                              "; call resolve_entity to find the right node."}))])
             s, t = sc[0], tc[0]
+            _safe_label(s["label"])
+            _safe_label(t["label"])
 
             def anchor(node, var):
-                # prefer name (reliable, indexed); fall back to identifier
-                if node.get("name"):
-                    return f"{var}.name = ${var}nm", {f"{var}nm": node["name"]}
-                return f"{var}.identifier = ${var}id", {f"{var}id": node.get("identifier")}
+                if node.get("identifier") is not None:
+                    return f"{var}.identifier = ${var}id", {f"{var}id": node["identifier"]}
+                return f"{var}.name = ${var}nm", {f"{var}nm": node.get("name")}
 
             sa, sp = anchor(s, "a")
             ta, tp = anchor(t, "b")
@@ -578,7 +624,7 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
                   f"WITH path LIMIT {kpaths} "
                   "RETURN [n IN nodes(path) | labels(n)[0] + ':' + coalesce(n.name, toString(n.identifier))] AS nodes, "
                   "[r IN relationships(path) | type(r)] AS rels, length(path) AS hops")
-            rows = _read(cy, params)
+            rows = _read(cy, params, timeout=_remaining_budget(deadline))
             # dedupe identical (nodes, rels) sequences (parallel edges produce repeats)
             seen, paths = set(), []
             for r in rows:
@@ -597,15 +643,8 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
                 out["note"] = (f"No path within {mh} hops between the resolved nodes. Try a larger "
                                "max_hops, or they may be only distantly/indirectly connected.")
             return ToolResult(content=[TextContent(type="text", text=json.dumps(out, default=str))])
-        except ClientError as e:
-            if "timed out" in str(e).lower():
-                raise ToolError("Path search timed out; reduce max_hops or anchor on more specific nodes.")
-            raise ToolError(f"SPOKE find_path error: {e}")
-        except Neo4jError as e:
-            raise ToolError(f"SPOKE find_path error: {e}")
-        except Exception as e:
-            logger.error(f"find_path error: {e}")
-            raise ToolError(f"find_path failed: {e}")
+        except Exception as error:
+            raise _safe_tool_error(error) from None
 
     @mcp.tool(
         name="query_spoke",
@@ -629,8 +668,8 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
         Behaviour built in for you:
           * Only read queries are allowed (writes are rejected).
           * An unbounded, non-aggregate query gets a safety LIMIT appended so it
-            cannot accidentally scan the 43M-node graph; aggregations and queries
-            with your own LIMIT are left as-is.
+            bounds returned rows; it does not bound scans, sorting or aggregation.
+            Aggregations and queries with your own LIMIT are left as-is.
           * A transaction timeout aborts pathological queries instead of hanging.
           * Output is trimmed (noisy HTML/link fields removed, long strings cut)
             and capped in size to stay efficient.
@@ -638,12 +677,17 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
         Tips: resolve names first with resolve_entity; use the edge_directory from
         get_spoke_schema to choose relationship types; pass literals via parameters.
         """
-        if _is_write_query(cypher_query):
-            raise ToolError("Only read queries (MATCH, RETURN, CALL db.*, etc.) are allowed for SPOKE.")
+        from .jobs import validate_query
+        try:
+            validate_query(cypher_query, "cypher")
+        except ValueError as error:
+            raise ToolError(str(error)) from None
 
         effective, added_limit = _maybe_add_limit(cypher_query)
         try:
-            rows = _read(effective, parameters)
+            rows = _read(effective, parameters, max_rows=2001)
+            row_cap_reached = len(rows) > 2000
+            rows = rows[:2000]
             rows = _trim(rows)
             payload = json.dumps(rows, default=str)
             truncated = False
@@ -659,6 +703,8 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
                 truncated = True
 
             meta = {}
+            if row_cap_reached:
+                meta["row_cap"] = "Preview limited to 2000 rows. Use spoke-submit_query_job for a complete local export."
             if added_limit:
                 meta["note"] = (f"No LIMIT was given; a safety LIMIT {DEFAULT_SAFETY_LIMIT} was "
                                 "applied. Add your own LIMIT/aggregation for full control.")
@@ -671,20 +717,10 @@ def create_spoke_server(config: SPOKEConfig) -> FastMCP:
                                  "or check the relationship direction/type in get_spoke_schema.")
             text = payload if not meta else json.dumps({"results": json.loads(payload), "meta": meta})
             return ToolResult(content=[TextContent(type="text", text=text)])
-        except ClientError as e:
-            msg = str(e)
-            if "TransactionTimedOut" in msg or "timed out" in msg.lower():
-                raise ToolError("SPOKE query timed out. Anchor on a resolved node (name/identifier), "
-                                "add filters/LIMIT, and avoid traversing expensive (>1M) edges "
-                                "unanchored. See get_spoke_schema cost flags.")
-            raise ToolError(f"SPOKE query error: {e}")
-        except Neo4jError as e:
-            logger.error(f"SPOKE error executing query: {e}")
-            raise ToolError(f"SPOKE biomedical knowledge graph error: {e}")
-        except Exception as e:
-            logger.error(f"Unexpected error in SPOKE query: {e}")
-            raise ToolError(f"Error executing SPOKE biomedical knowledge query: {e}")
+        except Exception as error:
+            raise _safe_tool_error(error) from None
 
+    register_job_tools(mcp, "spokeagent", config.model_dump(), prefix="spoke-")
     return mcp
 
 
@@ -696,12 +732,13 @@ def main(
     path: str = "/mcp/",
 ) -> None:
     """Main entry point for the SPOKEAgent server"""
-    config = SPOKEConfig(log_level=log_level)
+    config = SPOKEConfig(**from_environment(), log_level=log_level)
     logger.info("Starting SPOKEAgent - SPOKE Knowledge Graph MCP Server")
-    logger.info(f"SPOKE URI: {config.uri}")
-    logger.info(f"SPOKE Database: {config.database}")
     mcp = create_spoke_server(config)
-    mcp.run()
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+    else:
+        mcp.run(transport=transport, host=host, port=port, path=path)
 
 
 if __name__ == "__main__":

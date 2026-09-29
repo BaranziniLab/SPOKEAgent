@@ -1,5 +1,60 @@
 # SPOKEAgent
 
+Current version: **0.5.0**. Small queries stay on MCP; long queries and full
+exports run as monitored local jobs without tying up an MCP request.
+
+## Install in BioRouter
+
+1. Download **[spokeagent.brxt](https://github.com/BaranziniLab/SPOKEAgent/releases/latest/download/spokeagent.brxt)**
+   from [Releases](https://github.com/BaranziniLab/SPOKEAgent/releases/latest).
+   The same current bundle is committed under [extensions/](extensions/).
+2. In BioRouter, open **Extensions → Add extension**, select the BRXT and install.
+   BioRouter creates the Python environment; `uv` and Python 3.11+ are required.
+3. Enter credentials in BioRouter's own configuration dialog, never in chat.
+4. Enable the extension in your chat. Verify a small query before a larger export.
+
+Terminal installation uses the same installer:
+
+```bash
+biorouter extension install ./extensions/spokeagent.brxt
+biorouter extension configure spokeagent
+```
+
+Configure `SPOKEAGENT_PASSCODE`. Alternatively provide `KNOWLEDGE_GRAPH_URI`, `KNOWLEDGE_GRAPH_USERNAME`, `KNOWLEDGE_GRAPH_PASSWORD`, and optionally `KNOWLEDGE_GRAPH_DATABASE` (default `neo4j`). Direct settings take precedence; use one route consistently. Because either route is valid, manifest fields are optional individually; startup validates that one complete route exists.
+
+The Desktop installer discovers bundled `skills/*/SKILL.md`. If using a BioRouter
+CLI version that does not copy bundled skills, the MCP server still provides the
+job-routing instructions; the skill folders can also be installed separately.
+
+## Long queries, CLI and progress
+
+Use `spoke-submit_query_job` for an export or a query that could exceed the
+interactive timeout. It returns a job ID immediately. Poll
+`spoke-query_job_status` at its recommended interval; use
+`spoke-cancel_query_job` to stop. Only `completed` means the file is complete.
+Status includes rows, bytes, elapsed time, phase and an advisory ETA when known.
+Set `mode="explain"` to obtain a plan without running the query.
+
+From a source checkout, or BioRouter's installed extension directory:
+
+```bash
+uv sync --locked
+# Standalone CLI only: configure its OS-keyring profile interactively once.
+# BioRouter MCP jobs already receive credentials and do not need this command.
+uv run spokeagent auth
+uv run spokeagent submit --query-file query.cypher --format jsonl --timeout-seconds 3600
+uv run spokeagent watch JOB_ID
+```
+
+No-argument `uv run spokeagent` continues to start the MCP server. `status`, `watch`,
+`list`, `cancel` and `purge` need no database credentials. Results remain in the
+local private job directory and are not sent to chat. Database/server limits can
+still fail a query; jobs report those failures instead of silently truncating.
+
+See [architecture, storage, security and release details](docs/QUERY_JOBS.md).
+To rebuild the tracked bundle: `uv run python scripts/build_brxt.py`.
+
+
 A **structure-aware** MCP (Model Context Protocol) server for querying the SPOKE
 biomedical knowledge graph for rapid biomedical knowledge inference. Points to the
 official release of SPOKE.
@@ -13,15 +68,6 @@ unbounded scans). See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) and
 [`docs/TEST_FINDINGS.md`](docs/TEST_FINDINGS.md) for the design rationale, validated
 over 100 natural-language questions through BioRouter.
 
-## BioRouter Extension
-
-**[Download spokeagent.brxt](https://github.com/BaranziniLab/SPOKEAgent/releases/latest/download/spokeagent-0.4.1.brxt)**
-
-Drag the `.brxt` file into BioRouter's **Extensions → Add extension** dialog. BioRouter will install the virtual environment automatically and prompt for required credentials.
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `SPOKEAGENT_PASSCODE` | ✅ | — | Passcode from the SPOKEAgent credentials page |
 
 ## Features
 
@@ -76,13 +122,13 @@ Call once near the start of a task.
 Maps a free-text name, synonym, brand, or identifier to canonical node(s). Handles
 case-sensitivity, apostrophes, and cross-vocabulary identifiers (DOID, Entrez,
 Ensembl, DrugBank, UMLS CUI, UBERON, GO). Returns ranked candidates
-`{label, name, identifier, matched_on, score, degree}`. Use it **before** querying.
+`{label, name, identifier, matched_on, score}` (degree may also be present). Use it **before** querying.
 
 ### 3. `describe_node(query, label?)`
 
 Returns a node's real relationship profile `{dir, rel, neighbor_label, count}` — to
-pick the right edge, or to confirm (and report) that an expected edge is absent
-instead of guessing more queries.
+pick the right edge. If `truncated=true`, the profile contains only the top 60 groups;
+do not conclude that an unlisted edge is absent.
 
 ### 4. `find_path(source, target, source_label?, target_label?, max_hops?, max_paths?)`
 
@@ -109,11 +155,14 @@ LIMIT 10
 
 ## Security
 
-This server enforces read-only access to the SPOKE knowledge graph. Write operations (CREATE, MERGE, DELETE, etc.) are not permitted.
+A conservative query guard rejects writes and procedure calls in user-supplied
+Cypher. Use a database principal with read-only permissions: the guard supplements
+server authorization. Entity labels are validated before interpolation, and
+resolver steps share a total timeout budget rather than accumulating long waits.
 
 ## License
 
-MIT
+Apache-2.0
 
 ## Authors
 
