@@ -35,7 +35,7 @@ graph (a 43M-node Neo4j graph queried with Cypher).
    This eliminates case/quoting errors entirely. Matching by `identifier` (e.g.
    `{identifier:$id}`) is equally good — but note **Gene.identifier is an integer**
    (Entrez); match genes by their `name` (HGNC symbol) instead.
-   Each candidate includes a `degree` (its number of relationships). When an entity
+   Ambiguous candidate lists may include `degree` (the number of relationships). When an entity
    has several variant nodes (e.g. "glucose" deg 7 vs the canonical high-degree node),
    prefer the higher-degree one — especially if a traversal on your first pick is empty.
 
@@ -46,9 +46,10 @@ graph (a 43M-node Neo4j graph queried with Cypher).
 **When a query returns 0 rows, or for "how is X connected / what is near X"
 questions, call `describe_node`.** It lists the relationship types a node actually
 has (with direction, neighbour label, and count). If the edge you expected isn't
-there (e.g. Parkinson's disease has no `PRESENTS_DpS`, Crohn's has no
-`LOCALIZES_DlA`), report the absence immediately — do **not** keep trying query
-variations. It is also the fastest way to scope an open-ended exploration.
+there and `truncated` is false, report its absence from the graph. If `truncated`
+is true, the tool returned only the largest 60 groups: check the specific edge
+with an anchored query before concluding absence. Graph absence is not evidence
+of biological absence. It is also the fastest way to scope an open-ended exploration.
 
 ## Edge cheat-sheet (verify against the live edge_directory)
 
@@ -77,7 +78,11 @@ Disease = DOID (also `omim_list`, `mesh_list`); Gene = Entrez integer `identifie
 HGNC symbol `name`, `ensembl`; Compound = `inchikey:`/`CHEBI:` identifier, DrugBank/
 ChEMBL/PubChem in `xrefs`; Protein = UniProt; SideEffect = UMLS CUI; Symptom = MeSH;
 Anatomy = UBERON; BiologicalProcess/MolecularFunction/CellularComponent = GO.
-`resolve_entity` understands all of these — feed it the id directly.
+Use an explicit label for identifier resolution. The resolver supports the listed
+primary identifiers plus Ensembl and DrugBank lookups; do not assume every external
+cross-reference namespace is indexed or supported. DrugBank and OMIM fallbacks may
+scan the relevant label. Database/authentication errors are failures, not evidence
+that an entity does not exist.
 
 ## Performance & correctness rules
 
@@ -89,6 +94,9 @@ Anatomy = UBERON; BiologicalProcess/MolecularFunction/CellularComponent = GO.
   nodes (≈26 s). Reach human proteins via `(:Gene)-[:ENCODES_GeP]->(:Protein)`.
 - `query_spoke` auto-applies a safety `LIMIT` to unbounded non-aggregate queries and
   enforces a transaction timeout, but you should still add explicit `LIMIT`/filters.
+  `LIMIT` bounds returned rows, not upstream expansion, sorting or aggregation.
+  A small result can still require an expensive traversal. The MCP response is a
+  trimmed preview (at most 2,000 rows), never a complete export guarantee.
 - **Filter deprecated nodes**: many Pathway (and some other) nodes have
   `vestige = true`. Add `WHERE NOT coalesce(p.vestige, false)` for pathways.
 - For "shortest path / how connected" questions use bounded paths, e.g.
@@ -99,7 +107,9 @@ Anatomy = UBERON; BiologicalProcess/MolecularFunction/CellularComponent = GO.
   use the **`find_path`** tool (not hand-written `shortestPath` queries). It resolves
   both endpoints and returns the shortest path(s) as node + relationship sequences in
   one call — read the mechanism straight off the result. Increase `max_hops` only if
-  no path is found. Don't keep probing individual multi-hop patterns by hand.
+  no path is found and the scientific question warrants a larger search. High-degree
+  endpoints can still time out; a hop bound does not guarantee cheap expansion.
+  Don't keep probing individual multi-hop patterns by hand.
 - For **"shared / common / same-as" questions** (e.g. "other drugs that bind the same
   target", "genes shared by two diseases"), write ONE anchored graph query with a
   co-occurrence pattern — do **not** resolve and test candidate entities one-by-one:
@@ -116,3 +126,25 @@ Anatomy = UBERON; BiologicalProcess/MolecularFunction/CellularComponent = GO.
 2. `resolve_entity("EGFR", label="Gene")` → `{name:"EGFR", identifier:1956}`.
 3. `query_spoke("MATCH (g:Gene {name:$g})-[:ENCODES_GeP]->(p:Protein)<-[:BINDS_CbP]-(c:Compound) RETURN DISTINCT c.name AS drug LIMIT 25", {"g":"EGFR"})`.
 4. Report the drugs and note you traversed Gene→Protein→Compound (binding), anchored on EGFR.
+
+## Long queries and exports
+
+Use MCP for schema, entity resolution and bounded exploration. For a complete
+export, a previous timeout, or a query expected to exceed the interactive budget,
+submit once through `spoke-submit_query_job` (or the `spokeagent submit` CLI), then
+monitor `spoke-query_job_status`. Follow the companion `spokeagent-query-jobs`
+skill for CLI syntax, secure credential provisioning and job lifecycle details.
+Credentials belong in the configured credential provider, never in Cypher,
+tool arguments, prompts or exported files.
+
+Before submitting, confirm endpoint identifiers and relevant edge types with a
+small bounded query. Prefer indexed anchors and a specific relationship type;
+return scalar columns instead of whole nodes when exporting. Avoid `collect()`
+of huge result sets: stream rows to the job's output file. An unrestricted exact
+count can cost as much as the export, so do not run one merely to invent an ETA.
+Poll the returned progress at its recommended interval. Report rows/bytes and
+elapsed time; ETA stays unknown until there is a defensible total and throughput.
+Do not resubmit an active job. Distinguish success, cancellation, timeout and
+failure, and never treat a partial output file as complete. Jobs avoid the MCP
+request timeout but cannot guarantee completion despite database outages or
+server-side resource limits.

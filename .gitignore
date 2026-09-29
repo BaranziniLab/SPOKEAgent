@@ -44,3 +44,10 @@ CLAUDE.md
 # never commit local secrets
 *secrets*.json
 sandbox/
+
+.env
+.env.*
+!.env.example
+*.partial
+
+!extensions/*.brxt
